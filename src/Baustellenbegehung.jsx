@@ -704,21 +704,14 @@ React.useEffect(() => {
       ev;
     return { x: p.clientX - rect.left, y: p.clientY - rect.top };
   };
-// einmal initial setzen (skaliert Canvas)
-setup();
-
-// gespeicherte Unterschrift wiederherstellen (muss NACH setup passieren)
-if (signatureDataURL) {
-  const img = new Image();
-  img.onload = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  };
-  img.src = signatureDataURL;
-}
+// Pro Größenänderung nur einmal wiederherstellen, immer in Gerätepixeln.
+let restoreGeneration = 0;
+let disposed = false;
 
   const start = (ev) => {
     ev.preventDefault();
+    // Eine noch ladende alte Vorschau darf neue Striche nicht überschreiben.
+    restoreGeneration += 1;
     // Canvas hier nicht zurücksetzen: sonst wird bei jedem Strich die Signatur gelöscht.
 
     isDrawingRef.current = true;
@@ -755,35 +748,24 @@ if (signatureDataURL) {
     }
   };
 const handleResize = () => {
+  const generation = ++restoreGeneration;
   setup();
+  if (!signatureDataURL) return;
 
-  if (signatureDataURL) {
-    const img = new Image();
-    img.onload = () => {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
-    };
-    img.src = signatureDataURL;
-  }
-};
-
-  handleResize();
-  // Restore: gespeicherte Unterschrift nach setup() wieder ins Canvas zeichnen
-if (signatureDataURL) {
   const img = new Image();
   img.onload = () => {
-    // In Gerätepixeln arbeiten, damit es mit deinem DPR-Setup sauber bleibt
+    if (disposed || generation !== restoreGeneration) return;
     ctx.save();
+    // canvas.width/height sind bereits mit DPR skaliert. Nicht erneut skalieren.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     ctx.restore();
   };
   img.src = signatureDataURL;
-}
+};
+
+handleResize();
 window.addEventListener("resize", handleResize);
   
 
@@ -799,7 +781,9 @@ window.addEventListener("resize", handleResize);
   canvas.addEventListener("touchcancel", end, { passive: false });
 
   return () => {
-   window.removeEventListener("resize", handleResize);
+    disposed = true;
+    restoreGeneration += 1;
+    window.removeEventListener("resize", handleResize);
 
 
     canvas.removeEventListener("pointerdown", start);
